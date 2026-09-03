@@ -1,37 +1,54 @@
 import axios from 'axios';
 
-const BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080';
-
-export const api = axios.create({ baseURL: BASE, headers: { 'Content-Type': 'application/json' } });
-
-api.interceptors.request.use((config) => {
-  if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('accessToken');
-    if (token) config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
+// Use same-origin /api proxy to bypass all browser CORS restrictions completely
+export const api = axios.create({
+  baseURL: '/api',
+  headers: {
+    'Content-Type': 'application/json',
+    'accept': 'application/json',
+  },
 });
 
+api.interceptors.request.use(
+  (config) => {
+    if (typeof window !== 'undefined') {
+      const token = localStorage.getItem('accessToken');
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
 api.interceptors.response.use(
-  (r) => r,
-  async (err) => {
-    const orig = err.config;
-    if (err.response?.status === 401 && !orig._retry) {
-      orig._retry = true;
-      const rt = typeof window !== 'undefined' && localStorage.getItem('refreshToken');
-      if (rt) {
-        try {
-          const res = await axios.post(`${BASE}/auth/refresh`, { refreshToken: rt });
-          localStorage.setItem('accessToken', res.data.accessToken);
-          orig.headers.Authorization = `Bearer ${res.data.accessToken}`;
-          return api(orig);
-        } catch {
-          localStorage.removeItem('accessToken');
-          localStorage.removeItem('refreshToken');
-          if (typeof window !== 'undefined') window.location.href = '/auth/login';
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+    const isAuthEndpoint = originalRequest?.url?.includes('/auth/');
+
+    if (error.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
+      originalRequest._retry = true;
+
+      if (typeof window !== 'undefined') {
+        const refreshToken = localStorage.getItem('refreshToken');
+        if (refreshToken) {
+          try {
+            const res = await axios.post(`/api/auth/refresh?refreshToken=${encodeURIComponent(refreshToken)}`);
+            const newAccessToken = res.data.accessToken;
+
+            localStorage.setItem('accessToken', newAccessToken);
+            originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+            return api(originalRequest);
+          } catch (refreshErr) {
+            localStorage.removeItem('accessToken');
+            localStorage.removeItem('refreshToken');
+          }
         }
       }
     }
-    return Promise.reject(err);
+
+    return Promise.reject(error);
   }
 );

@@ -1,70 +1,157 @@
 'use client';
-import React, { createContext, useContext, useState, useEffect } from 'react';
+
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { UserProfileResponseDto, LoginRequest, SignUpRequest, LoginResponse } from '@/types/api';
+import { UserProfileResponseDto, LoginRequest, SignUpRequest, LoginResponse, SignUpResponse } from '@/types/api';
+
+interface AuthResponse {
+  success: boolean;
+  error?: string;
+}
 
 interface AuthContextType {
   user: UserProfileResponseDto | null;
   isLoggedIn: boolean;
   loading: boolean;
-  login: (c: LoginRequest) => Promise<void>;
-  signup: (u: SignUpRequest) => Promise<void>;
+  login: (credentials: LoginRequest) => Promise<AuthResponse>;
+  signup: (userData: SignUpRequest) => Promise<AuthResponse>;
   logout: () => void;
-  refreshUserProfile: () => Promise<void>;
+  fetchProfile: () => Promise<UserProfileResponseDto | null>;
+  refreshUserProfile: () => Promise<UserProfileResponseDto | null>;
 }
 
-const Ctx = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfileResponseDto | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(true);
 
-  const fetchProfile = async () => {
+  const fetchProfile = async (): Promise<UserProfileResponseDto | null> => {
+    if (typeof window === 'undefined') return null;
+    const token = localStorage.getItem('accessToken');
+    if (!token) {
+      setUser(null);
+      setLoading(false);
+      return null;
+    }
+
     try {
       const res = await api.get<UserProfileResponseDto>('/user/me');
       setUser(res.data);
-    } catch {
+      return res.data;
+    } catch (err) {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
       setUser(null);
+      return null;
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && localStorage.getItem('accessToken')) {
-      fetchProfile();
-    } else {
-      setLoading(false);
-    }
+    fetchProfile();
   }, []);
 
-  const login = async (credentials: LoginRequest) => {
-    const res = await api.post<LoginResponse>('/auth/login', credentials);
-    localStorage.setItem('accessToken', res.data.accessToken);
-    localStorage.setItem('refreshToken', res.data.refreshToken);
-    await fetchProfile();
+  const login = async (credentials: LoginRequest): Promise<AuthResponse> => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+    }
+    setUser(null);
+
+    try {
+      const res = await api.post<LoginResponse>('/auth/login', credentials);
+      const { accessToken, refreshToken } = res.data;
+
+      if (!accessToken) {
+        return { success: false, error: 'No access token returned from server' };
+      }
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('accessToken', accessToken);
+        if (refreshToken) {
+          localStorage.setItem('refreshToken', refreshToken);
+        }
+      }
+
+      const profile = await fetchProfile();
+      if (!profile) {
+        return { success: false, error: 'Failed to load user profile' };
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+      }
+      setUser(null);
+
+      let errMsg = 'Invalid email or password. Please try again.';
+      if (err.response?.data?.error?.message) {
+        errMsg = err.response.data.error.message;
+      } else if (err.response?.data?.message) {
+        errMsg = err.response.data.message;
+      } else if (err.message === 'Network Error' || !err.response) {
+        errMsg = 'Unable to connect to backend server.';
+      }
+
+      return { success: false, error: errMsg };
+    }
   };
 
-  const signup = async (data: SignUpRequest) => {
-    await api.post('/auth/signup', data);
-    await login({ email: data.email, password: data.password });
+  const signup = async (userData: SignUpRequest): Promise<AuthResponse> => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+    }
+    setUser(null);
+
+    try {
+      await api.post<SignUpResponse>('/auth/signup', userData);
+      return await login({ email: userData.email, password: userData.password });
+    } catch (err: any) {
+      let errMsg = 'Registration failed. Please try again.';
+      if (err.response?.data?.error?.message) {
+        errMsg = err.response.data.error.message;
+      } else if (err.response?.data?.message) {
+        errMsg = err.response.data.message;
+      }
+      return { success: false, error: errMsg };
+    }
   };
 
   const logout = () => {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+    }
     setUser(null);
   };
 
   return (
-    <Ctx.Provider value={{ user, isLoggedIn: !!user, loading, login, signup, logout, refreshUserProfile: fetchProfile }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isLoggedIn: !!user,
+        loading,
+        login,
+        signup,
+        logout,
+        fetchProfile,
+        refreshUserProfile: fetchProfile,
+      }}
+    >
       {children}
-    </Ctx.Provider>
+    </AuthContext.Provider>
   );
 };
 
 export const useAuth = () => {
-  const ctx = useContext(Ctx);
-  if (!ctx) throw new Error('useAuth must be used inside AuthProvider');
-  return ctx;
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
 };

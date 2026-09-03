@@ -1,76 +1,153 @@
 'use client';
+
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { Compass, Mail, Lock, AlertCircle, ArrowRight } from 'lucide-react';
+import { loginSchema, LoginInput } from '@/lib/validations/auth';
+import { Mail, Lock, AlertCircle, ArrowRight } from 'lucide-react';
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
   const router = useRouter();
+  const { login } = useAuth();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const [formData, setFormData] = useState<LoginInput>({
+    email: '',
+    password: '',
+  });
+
+  const [errors, setErrors] = useState<Partial<Record<keyof LoginInput, string>>>({});
+  const [serverError, setServerError] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  const handleChange = (field: keyof LoginInput, value: string) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+    if (errors[field]) {
+      setErrors((prev) => ({ ...prev, [field]: undefined }));
+    }
+    if (serverError) setServerError('');
+  };
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setError('');
-    setLoading(true);
-    try {
-      await login({ email, password });
+    e.stopPropagation();
+
+    setErrors({});
+    setServerError('');
+
+    // Zod client-side validation
+    const validation = loginSchema.safeParse(formData);
+    if (!validation.success) {
+      const formattedErrors: Partial<Record<keyof LoginInput, string>> = {};
+      validation.error.issues.forEach((issue) => {
+        const field = issue.path[0] as keyof LoginInput;
+        if (field) formattedErrors[field] = issue.message;
+      });
+      setErrors(formattedErrors);
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    const res = await login({
+      email: formData.email.trim(),
+      password: formData.password,
+    });
+
+    setIsSubmitting(false);
+
+    if (res.success) {
       router.push('/');
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Invalid email or password');
-    } finally {
-      setLoading(false);
+    } else {
+      setServerError(res.error || 'Invalid email or password');
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4 font-sans">
-      <div className="w-full max-w-md bg-white rounded-3xl p-8 border border-gray-200 shadow-xl space-y-6">
+    <div className="min-h-screen bg-white flex items-center justify-center p-4 font-sans">
+      <div className="w-full max-w-md bg-white rounded-[14px] p-8 border border-[#dddddd] shadow-airbnb space-y-6">
         <div className="text-center space-y-2">
-          <Link href="/" className="inline-flex items-center gap-2">
-            <div className="w-10 h-10 rounded-2xl bg-rose-600 flex items-center justify-center text-white shadow-md shadow-rose-200">
-              <Compass className="w-6 h-6" />
+          <Link href="/" className="inline-flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-full overflow-hidden border border-[#dddddd] flex items-center justify-center">
+              <img src="/assests/logo.jpg" alt="TripHive Logo" className="w-full h-full object-cover" />
             </div>
-            <span className="text-2xl font-black text-gray-900">TripHive</span>
+            <span className="text-2xl font-black tracking-tight text-[#ff385c]">TripHive</span>
           </Link>
-          <h2 className="text-xl font-bold text-gray-900 pt-2">Welcome back</h2>
-          <p className="text-xs text-gray-500">Sign in to manage your bookings</p>
+          <h2 className="text-xl font-bold text-[#222222] pt-2">Welcome back</h2>
+          <p className="text-sm text-[#6a6a6a]">Log in to manage your bookings and trips</p>
         </div>
 
-        {error && (
-          <div className="p-4 rounded-2xl bg-red-50 border border-red-100 flex items-center gap-3 text-red-600 text-xs">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{error}</span>
+        {serverError && (
+          <div className="p-4 rounded-lg bg-red-50 border border-red-100 flex items-start gap-3 text-[#c13515] text-xs font-medium leading-relaxed">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{serverError}</span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+          {/* Email Field */}
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5">Email</label>
+            <label className="block text-xs font-medium text-[#6a6a6a] mb-1">Email address</label>
             <div className="relative">
-              <Mail className="w-4 h-4 text-gray-400 absolute left-3.5 top-3.5" />
-              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-medium text-gray-900 focus:outline-none focus:border-rose-500 focus:bg-white transition-all" />
+              <Mail className="w-4 h-4 text-[#6a6a6a] absolute left-3.5 top-4" />
+              <input
+                type="email"
+                required
+                value={formData.email}
+                onChange={(e) => handleChange('email', e.target.value)}
+                placeholder="name@example.com"
+                className={`w-full h-12 pl-10 pr-4 bg-white border rounded-lg text-sm text-[#222222] focus:outline-none focus:border-2 ${
+                  errors.email ? 'border-[#c13515] focus:border-[#c13515]' : 'border-[#dddddd] focus:border-[#222222]'
+                }`}
+              />
             </div>
+            {errors.email && <p className="text-[12px] font-medium text-[#c13515] mt-1">{errors.email}</p>}
           </div>
+
+          {/* Password Field */}
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5">Password</label>
+            <label className="block text-xs font-medium text-[#6a6a6a] mb-1">Password</label>
             <div className="relative">
-              <Lock className="w-4 h-4 text-gray-400 absolute left-3.5 top-3.5" />
-              <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-medium text-gray-900 focus:outline-none focus:border-rose-500 focus:bg-white transition-all" />
+              <Lock className="w-4 h-4 text-[#6a6a6a] absolute left-3.5 top-4" />
+              <input
+                type="password"
+                required
+                value={formData.password}
+                onChange={(e) => handleChange('password', e.target.value)}
+                placeholder="••••••••"
+                className={`w-full h-12 pl-10 pr-4 bg-white border rounded-lg text-sm text-[#222222] focus:outline-none focus:border-2 ${
+                  errors.password ? 'border-[#c13515] focus:border-[#c13515]' : 'border-[#dddddd] focus:border-[#222222]'
+                }`}
+              />
             </div>
+            {errors.password && <p className="text-[12px] font-medium text-[#c13515] mt-1">{errors.password}</p>}
           </div>
-          <button type="submit" disabled={loading} className="w-full py-3.5 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-lg shadow-rose-200 transition-all flex items-center justify-center gap-2 disabled:opacity-50">
-            {loading ? <span>Signing in...</span> : <><span>Sign in</span><ArrowRight className="w-4 h-4" /></>}
+
+          {/* Submit Button */}
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full h-12 rounded-lg bg-[#ff385c] hover:bg-[#e00b41] text-white font-semibold text-base shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+          >
+            {isSubmitting ? (
+              <span className="flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <span>Signing in...</span>
+              </span>
+            ) : (
+              <>
+                <span>Continue</span>
+                <ArrowRight className="w-4 h-4" />
+              </>
+            )}
           </button>
         </form>
 
-        <p className="text-center text-xs text-gray-500">
-          No account?{' '}
-          <Link href="/auth/signup" className="font-bold text-rose-600 hover:underline">Sign up</Link>
+        <p className="text-center text-sm text-[#6a6a6a]">
+          Don't have an account?{' '}
+          <Link href="/auth/signup" className="font-semibold text-[#ff385c] hover:underline">
+            Sign up
+          </Link>
         </p>
       </div>
     </div>

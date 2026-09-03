@@ -1,84 +1,165 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+
+import React, { useState } from 'react';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { HeroSearchBar } from '@/components/search/HeroSearchBar';
 import { HotelGrid } from '@/components/hotels/HotelGrid';
-import { api } from '@/lib/api';
-import { HotelResponseDTO, HotelPriceDTO, HotelSearchRequest } from '@/types/api';
+import { useHotelSearchMutation } from '@/hooks/useHotelQueries';
+import { HotelSearchRequest, HotelPriceDTO, HotelResponseDTO } from '@/types/api';
 import { ShieldCheck, Sparkles, Award } from 'lucide-react';
 
-const MOCK: HotelResponseDTO[] = [
-  { id: 1, name: 'The Ritz Paris Luxury Suite', city: 'Paris', photos: ['https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=800&q=80'], amenities: ['Free WiFi','Infinity Pool'], active: true, contactInfo: { address: '15 Place Vendôme' } },
-  { id: 2, name: 'Plaza Hotel Fifth Avenue', city: 'New York', photos: ['https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=800&q=80'], amenities: ['Spa','Valet Parking'], active: true, contactInfo: { address: '768 5th Ave' } },
-  { id: 3, name: 'Aman Tokyo Panoramic Suite', city: 'Tokyo', photos: ['https://images.unsplash.com/photo-1618773928121-c32242e63f39?auto=format&fit=crop&w=800&q=80'], amenities: ['Onsen Spa','City View'], active: true, contactInfo: { address: 'The Otemachi Tower' } },
-  { id: 4, name: 'The Claridge London', city: 'London', photos: ['https://images.unsplash.com/photo-1590490360182-c33d57733427?auto=format&fit=crop&w=800&q=80'], amenities: ['Michelin Restaurant','Concierge'], active: true, contactInfo: { address: 'Brook Street, Mayfair' } },
+// ── Static featured hotels shown before any search ────────────────────────────
+const MOCK_HOTELS: HotelPriceDTO[] = [
+  {
+    hotel: {
+      id: 1001, name: 'The Ritz Paris Luxury Suite', city: 'Paris', active: true,
+      photos: ['https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=800&q=80'],
+      amenities: ['Free WiFi', 'Infinity Pool', 'Spa', 'Concierge'],
+      contactInfo: { address: '15 Place Vendôme, Paris, France' },
+    },
+    price: 850,
+  },
+  {
+    hotel: {
+      id: 1002, name: 'Plaza Hotel Fifth Avenue', city: 'New York', active: true,
+      photos: ['https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=800&q=80'],
+      amenities: ['Spa', 'Valet Parking', 'Restaurant'],
+      contactInfo: { address: '768 5th Ave, New York, NY' },
+    },
+    price: 620,
+  },
+  {
+    hotel: {
+      id: 1003, name: 'Aman Tokyo Panoramic Suite', city: 'Tokyo', active: true,
+      photos: ['https://images.unsplash.com/photo-1618773928121-c32242e63f39?auto=format&fit=crop&w=800&q=80'],
+      amenities: ['Onsen Spa', 'City View', 'Free WiFi'],
+      contactInfo: { address: 'The Otemachi Tower, Tokyo' },
+    },
+    price: 980,
+  },
+  {
+    hotel: {
+      id: 1004, name: 'The Claridge London', city: 'London', active: true,
+      photos: ['https://images.unsplash.com/photo-1590490360182-c33d57733427?auto=format&fit=crop&w=800&q=80'],
+      amenities: ['Michelin Restaurant', 'Concierge', 'Free WiFi'],
+      contactInfo: { address: 'Brook Street, Mayfair, London' },
+    },
+    price: 740,
+  },
+  {
+    hotel: {
+      id: 1005, name: 'Burj Al Arab Royal Suite', city: 'Dubai', active: true,
+      photos: ['https://images.unsplash.com/photo-1512453979798-5ea266f8880c?auto=format&fit=crop&w=800&q=80'],
+      amenities: ['Private Butler', 'Infinity Pool', 'Helipad'],
+      contactInfo: { address: 'Jumeirah Beach Road, Dubai' },
+    },
+    price: 2400,
+  },
+  {
+    hotel: {
+      id: 1006, name: 'Four Seasons Bali at Sayan', city: 'Bali', active: true,
+      photos: ['https://images.unsplash.com/photo-1537996194471-e657df975ab4?auto=format&fit=crop&w=800&q=80'],
+      amenities: ['Infinity Pool', 'Spa', 'River Views'],
+      contactInfo: { address: 'Sayan, Ubud, Bali, Indonesia' },
+    },
+    price: 430,
+  },
+  {
+    hotel: {
+      id: 1007, name: 'The Peninsula Hong Kong', city: 'Hong Kong', active: true,
+      photos: ['https://images.unsplash.com/photo-1598928636135-d146006ff4be?auto=format&fit=crop&w=800&q=80'],
+      amenities: ['Harbour View', 'Spa', 'Fine Dining'],
+      contactInfo: { address: 'Salisbury Road, Tsim Sha Tsui' },
+    },
+    price: 560,
+  },
+  {
+    hotel: {
+      id: 1008, name: 'Belmond Hotel Cipriani', city: 'Venice', active: true,
+      photos: ['https://images.unsplash.com/photo-1523531294919-4bcd7c65e216?auto=format&fit=crop&w=800&q=80'],
+      amenities: ['Private Dock', 'Pool', 'Michelin Restaurant'],
+      contactInfo: { address: 'Giudecca 10, Venice, Italy' },
+    },
+    price: 1100,
+  },
 ];
 
 export default function HomePage() {
-  const [hotels, setHotels] = useState<(HotelResponseDTO | HotelPriceDTO)[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedCity, setSelectedCity] = useState('');
+  const [hasSearched, setHasSearched] = useState(false);
+  const [searchResults, setSearchResults] = useState<HotelPriceDTO[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState(false);
 
-  const fetchHotels = async (params?: HotelSearchRequest) => {
-    setLoading(true);
-    try {
-      if (params && (params.city || params.checkInDate)) {
-        const res = await api.post<HotelPriceDTO[]>('/hotels/search', params);
-        setHotels(res.data);
-      } else {
-        const qp = selectedCity ? { city: selectedCity } : {};
-        const res = await api.get<HotelResponseDTO[]>('/hotels/search', { params: qp });
-        setHotels(res.data);
-      }
-    } catch {
-      setHotels(MOCK);
-    } finally {
-      setLoading(false);
+  const searchMutation = useHotelSearchMutation();
+
+  const handleSearch = async (params: HotelSearchRequest) => {
+    setHasSearched(true);
+    setSearchLoading(true);
+    setSearchError(false);
+
+    const result = await searchMutation.mutateAsync(params).catch(() => null);
+
+    if (!result) {
+      setSearchError(true);
+      setSearchResults([]);
+    } else {
+      setSearchResults(result.content ?? []);
     }
+    setSearchLoading(false);
   };
 
-  useEffect(() => { fetchHotels(); }, [selectedCity]);
+  const displayHotels = hasSearched ? searchResults : MOCK_HOTELS;
+  const displayLoading = hasSearched ? searchLoading : false;
+  const displayError = hasSearched ? searchError : false;
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
+    <div className="min-h-screen bg-white flex flex-col font-sans">
       <Navbar />
 
-      <section className="bg-gradient-to-b from-rose-50/60 via-white to-gray-50 pt-12 pb-20 px-4 sm:px-6 lg:px-8 border-b border-gray-100">
-        <div className="max-w-4xl mx-auto text-center space-y-4 mb-10">
-          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-rose-100 text-rose-700 text-xs font-black tracking-wide uppercase">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Next-Gen Booking Engine</span>
-          </span>
-          <h1 className="text-4xl sm:text-6xl font-black text-gray-900 tracking-tight leading-tight">
-            Find your next stay,{' '}
-            <span className="bg-gradient-to-r from-rose-600 via-pink-600 to-rose-500 bg-clip-text text-transparent">
-              curated for luxury.
-            </span>
+      {/* Hero Section */}
+      <section className="bg-white pt-10 pb-12 px-4 sm:px-6 lg:px-8 border-b border-[#ebebeb]">
+        <div className="max-w-4xl mx-auto text-center space-y-3 mb-8">
+          <h1 className="text-[28px] font-bold text-[#222222] tracking-tight leading-snug">
+            Inspiration for future getaways
           </h1>
-          <p className="text-sm text-gray-600 font-medium max-w-2xl mx-auto">
-            Book verified hotels and boutique villas with instant confirmation.
+          <p className="text-base font-normal text-[#6a6a6a]">
+            Book verified hotels, suites, and boutique retreats around the globe.
           </p>
         </div>
-        <HeroSearchBar onSearch={fetchHotels} />
+        <HeroSearchBar onSearch={handleSearch} />
       </section>
 
+      {/* Main Marketplace Grid */}
       <main className="flex-1">
-        <HotelGrid hotels={hotels} loading={loading} selectedCity={selectedCity} onSelectCity={setSelectedCity} />
+        {/* Section label */}
+        {!hasSearched && (
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+            <p className="text-xs font-semibold text-[#6a6a6a] uppercase tracking-widest">Featured Destinations</p>
+          </div>
+        )}
 
+        <HotelGrid
+          hotels={displayHotels}
+          loading={displayLoading}
+          isError={displayError}
+          hasSearched={hasSearched}
+        />
+
+        {/* Trust Banner */}
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-          <div className="bg-gradient-to-r from-rose-900 to-gray-900 rounded-3xl p-8 sm:p-12 text-white shadow-2xl grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="bg-[#222222] rounded-[14px] p-8 sm:p-12 text-white shadow-airbnb grid grid-cols-1 md:grid-cols-3 gap-8">
             {[
-              { Icon: ShieldCheck, title: 'AirCover Protection', desc: 'Comprehensive booking protection on every stay.' },
+              { Icon: ShieldCheck, title: 'AirCover Protection', desc: 'Comprehensive booking protection included with every stay.' },
               { Icon: Sparkles, title: 'Instant Confirmation', desc: 'Direct Spring Boot integration for guaranteed holds.' },
-              { Icon: Award, title: 'Superhost Quality', desc: 'Verified properties with top cleanliness standards.' },
+              { Icon: Award, title: 'Superhost Quality', desc: 'Verified properties meeting high standards for service.' },
             ].map(({ Icon, title, desc }) => (
               <div key={title} className="space-y-2">
-                <div className="w-12 h-12 rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center">
+                <div className="w-12 h-12 rounded-full bg-white/10 text-white flex items-center justify-center">
                   <Icon className="w-6 h-6" />
                 </div>
-                <h3 className="text-lg font-bold">{title}</h3>
-                <p className="text-xs text-gray-400">{desc}</p>
+                <h3 className="text-lg font-bold text-white">{title}</h3>
+                <p className="text-xs text-[#dddddd] leading-relaxed">{desc}</p>
               </div>
             ))}
           </div>
